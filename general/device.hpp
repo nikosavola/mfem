@@ -80,7 +80,20 @@ struct Backend
           (using separate host/device memory pools and host <-> device
           transfers) without any GPU hardware. As 'DEBUG' is sometimes used
           as a macro, `_DEVICE` has been added to avoid conflicts. */
-      DEBUG_DEVICE = 1 << 14
+      DEBUG_DEVICE = 1 << 14,
+      /** @brief [device] Experimental OCCA Metal backend: Apple-GPU-only,
+          via OCCA's Metal mode. Enabled when MFEM_USE_OCCA = YES, OCCA
+          itself was built with Metal support, and the host platform is
+          Apple; requesting it otherwise fails explicitly during
+          Device::Setup() (see OccaDeviceSetup() in general/device.cpp), it
+          does not silently fall back. Deliberately left out of
+          Backend::DEVICE_MASK: unlike OCCA_CUDA, no generic MFEM code path
+          (MFEM_FORALL, the generic device Memory fallback, ...) has been
+          made Metal-safe yet, so this backend only accelerates operations
+          that explicitly opt in via an OCCA capability check (see
+          DeviceCanUseOcca() in general/occa.hpp) -- see
+          doc/apple-metal-mlx-support.md section 6.1. */
+      OCCA_METAL = 1 << 15
    };
 
    /** @brief Additional useful constants. For example, the *_MASK constants can
@@ -88,7 +101,7 @@ struct Backend
    enum
    {
       /// Number of backends: from (1 << 0) to (1 << (NUM_BACKENDS-1)).
-      NUM_BACKENDS = 15,
+      NUM_BACKENDS = 16,
 
       /// Biwise-OR of all CPU backends
       CPU_MASK = CPU | RAJA_CPU | OCCA_CPU | CEED_CPU,
@@ -105,7 +118,9 @@ struct Backend
       /// Biwise-OR of all RAJA backends
       RAJA_MASK = RAJA_CPU | RAJA_OMP | RAJA_CUDA | RAJA_HIP,
       /// Biwise-OR of all OCCA backends
-      OCCA_MASK = OCCA_CPU | OCCA_OMP | OCCA_CUDA
+      /** @note OCCA_METAL is intentionally not part of Backend::DEVICE_MASK;
+          see the OCCA_METAL enumerator comment above. */
+      OCCA_MASK = OCCA_CPU | OCCA_OMP | OCCA_CUDA | OCCA_METAL
    };
 };
 
@@ -199,10 +214,14 @@ public:
          backend (Backend::Id 'DEBUG_DEVICE') is exceptionally set to 'debug'.
        - The 'cpu' backend is always enabled with lowest priority.
        - The current backend priority from highest to lowest is:
-         'ceed-cuda', 'occa-cuda', 'raja-cuda', 'cuda',
-         'ceed-hip', 'hip', 'debug',
+         'ceed-cuda', 'occa-cuda', 'occa-metal', 'raja-cuda', 'cuda',
+         'ceed-hip', 'raja-hip', 'hip', 'debug',
          'occa-omp', 'raja-omp', 'omp',
          'ceed-cpu', 'occa-cpu', 'raja-cpu', 'cpu'.
+       - The 'occa-metal' backend is experimental and Apple-GPU-only: it
+         requires MFEM_USE_OCCA = YES, OCCA built with Metal support, and an
+         Apple host platform, or Device::Setup() aborts with an explicit
+         diagnostic (it never silently falls back to another backend).
        - The following backend aliases are also available: 'ceed-gpu',
          'occa-gpu', 'raja-gpu', and 'gpu' where they alias their respective
          '*-cuda' or '*-hip' backends depending on the MFEM build-time

@@ -69,10 +69,36 @@ occa::memory OccaMemoryReadWrite(Memory<T> &mem, size_t size)
 inline bool DeviceCanUseOcca()
 {
    return Device::Allows(Backend::OCCA_CUDA) ||
+          // OCCA_METAL, like OCCA_CUDA, is a device-class backend that is
+          // deliberately kept out of Backend::DEVICE_MASK (see
+          // general/device.hpp) until every generic fallback path is proven
+          // Metal-safe. By the time Device::Allows() can see it here,
+          // Device::Setup() has already rejected an occa-metal request that
+          // OCCA itself (OCCA_METAL_ENABLED) or the host platform
+          // (__APPLE__) cannot support, so this check does not need to
+          // repeat that validation -- see OccaDeviceSetup() in
+          // general/device.cpp. Actually running Metal kernels through this
+          // path is WP3 hardware work; nothing here can exercise it without
+          // a real occa-metal device (TODO(apple-metal): remove this note
+          // once that has been validated on Apple hardware).
+          Device::Allows(Backend::OCCA_METAL) ||
           (Device::Allows(Backend::OCCA_OMP) &&
            !Device::Allows(Backend::DEVICE_MASK)) ||
           (Device::Allows(Backend::OCCA_CPU) &&
            !Device::Allows(Backend::DEVICE_MASK|Backend::OMP_MASK));
+}
+
+/** @brief Set the occa::properties kernel-build define that selects
+    fem/occa.okl's real-number type (see MFEM_OKL_SINGLE there) to match
+    MFEM's compile-time real_t. Must be called at every occa.okl
+    buildKernel() call site alongside the D1D/Q1D defines -- fem/occa.okl
+    cannot see MFEM_USE_SINGLE itself since it is compiled by OCCA at
+    runtime, not by the MFEM build. */
+inline void OccaSetRealTypeDefine(occa::properties &props)
+{
+#ifdef MFEM_USE_SINGLE
+   props["defines/MFEM_OKL_SINGLE"] = 1;
+#endif
 }
 
 typedef std::pair<int,int> occa_id_t;

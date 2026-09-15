@@ -48,7 +48,8 @@ ceed::RestrMap ceed_restr_map;
 // Backends listed by priority, high to low:
 static const Backend::Id backend_list[Backend::NUM_BACKENDS] =
 {
-   Backend::CEED_CUDA, Backend::OCCA_CUDA, Backend::RAJA_CUDA, Backend::CUDA,
+   Backend::CEED_CUDA, Backend::OCCA_CUDA, Backend::OCCA_METAL,
+   Backend::RAJA_CUDA, Backend::CUDA,
    Backend::CEED_HIP, Backend::RAJA_HIP, Backend::HIP, Backend::DEBUG_DEVICE,
    Backend::OCCA_OMP, Backend::RAJA_OMP, Backend::OMP,
    Backend::CEED_CPU, Backend::OCCA_CPU, Backend::RAJA_CPU, Backend::CPU
@@ -57,7 +58,7 @@ static const Backend::Id backend_list[Backend::NUM_BACKENDS] =
 // Backend names listed by priority, high to low:
 static const char *backend_name[Backend::NUM_BACKENDS] =
 {
-   "ceed-cuda", "occa-cuda", "raja-cuda", "cuda",
+   "ceed-cuda", "occa-cuda", "occa-metal", "raja-cuda", "cuda",
    "ceed-hip", "raja-hip", "hip", "debug",
    "occa-omp", "raja-omp", "omp",
    "ceed-cpu", "occa-cpu", "raja-cpu", "cpu"
@@ -479,20 +480,55 @@ static void RajaDeviceSetup(const int dev, int &ngpu)
 static void OccaDeviceSetup(const int dev)
 {
 #ifdef MFEM_USE_OCCA
-   const int cpu  = Device::Allows(Backend::OCCA_CPU);
-   const int omp  = Device::Allows(Backend::OCCA_OMP);
-   const int cuda = Device::Allows(Backend::OCCA_CUDA);
-   if (cpu + omp + cuda > 1)
+   const int cpu   = Device::Allows(Backend::OCCA_CPU);
+   const int omp   = Device::Allows(Backend::OCCA_OMP);
+   const int cuda  = Device::Allows(Backend::OCCA_CUDA);
+   const int metal = Device::Allows(Backend::OCCA_METAL);
+   if (cpu + omp + cuda + metal > 1)
    {
       MFEM_ABORT("Only one OCCA backend can be configured at a time!");
    }
    if (cuda)
    {
 #if OCCA_CUDA_ENABLED
-      std::string mode("mode: 'CUDA', device_id : ");
-      internal::occaDevice.setup(mode.append(1,'0'+dev));
+      // OCCA 2.x's occa::json::load() only recognizes a leading '{', '[', a
+      // quote, a digit, or true/false/null at the top level (see
+      // occa/internal/types/json.cpp); the un-braced "mode: '...'" string
+      // this used to pass, which OCCA 1.x accepted, is no longer valid and
+      // throws occa::exception "Cannot load JSON: ...". Wrapping it as a
+      // (still relaxed-syntax: unquoted keys, single-quoted values)
+      // brace-delimited object fixes this for every setup() call below.
+      std::string mode("{mode: 'CUDA', device_id : ");
+      internal::occaDevice.setup(mode.append(1,'0'+dev).append("}"));
 #else
       MFEM_ABORT("the OCCA CUDA backend requires OCCA built with CUDA!");
+#endif
+   }
+   else if (metal)
+   {
+      // Two independent, separately-diagnosed requirements: the host
+      // platform must be Apple (Metal Shading Language / the Metal
+      // framework do not exist elsewhere), and the OCCA this was built
+      // against must itself have been compiled with Metal support. Neither
+      // is inferred from the other, so an occa-metal request gets a
+      // specific, actionable reason for rejection instead of one generic
+      // failure -- this branch is the one path in this file that is
+      // actually exercised and verified on this (Linux, no Metal) machine;
+      // see doc/apple-metal-mlx-support-progress.md.
+#if !defined(__APPLE__)
+      MFEM_ABORT("the OCCA Metal backend ('occa-metal') is only available on"
+                 " Apple platforms!");
+#elif !OCCA_METAL_ENABLED
+      MFEM_ABORT("the OCCA Metal backend ('occa-metal') requires OCCA built"
+                 " with Metal support (OCCA_METAL_ENABLED)!");
+#else
+      // TODO(apple-metal): unverified past this point -- there is no Apple
+      // GPU or Metal toolchain available to run this against here. WP0/WP1
+      // hardware validation (doc/apple-metal-mlx-support.md) is explicitly
+      // deferred to a Mac-side agent; see
+      // doc/apple-metal-mlx-support-progress.md for exactly what remains.
+      std::string mode("{mode: 'Metal', device_id : ");
+      internal::occaDevice.setup(mode.append(1,'0'+dev).append("}"));
 #endif
    }
    else if (omp)
@@ -501,15 +537,16 @@ static void OccaDeviceSetup(const int dev)
       // OCCA 2.x has both device::setup(const std::string&) and
       // device::setup(const occa::json&) overloads; a bare string literal is
       // ambiguous between them (json has an implicit const char* ctor too),
-      // so the argument must be an explicit std::string.
-      internal::occaDevice.setup(std::string("mode: 'OpenMP'"));
+      // so the argument must be an explicit std::string -- see the brace
+      // comment above for why it must also be brace-delimited.
+      internal::occaDevice.setup(std::string("{mode: 'OpenMP'}"));
 #else
       MFEM_ABORT("the OCCA OpenMP backend requires OCCA built with OpenMP!");
 #endif
    }
    else
    {
-      internal::occaDevice.setup(std::string("mode: 'Serial'"));
+      internal::occaDevice.setup(std::string("{mode: 'Serial'}"));
    }
 
    std::string mfemDir;
