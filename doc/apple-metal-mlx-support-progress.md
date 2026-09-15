@@ -197,8 +197,22 @@ the code.
   **needs-Apple-hardware** (no shader resources exist yet; nothing to
   relocate-test).
 - "Clear failure on unsupported platforms, precision, or dependency
-  versions." **verified-here** for platform (both CMake and GNU make, see
-  commit `f3a74a69b`'s message for the exact commands and output).
+  versions." **verified-here** for platform, both CMake and GNU make.
+  CMake: see the two `cmake ..` invocations and diagnostics above. GNU make
+  (re-run and captured directly, not just cited from a commit message):
+  ```
+  $ make config MFEM_USE_OCCA_METAL=YES
+  makefile:315: *** Incompatible config: MFEM_USE_OCCA_METAL requires MFEM_USE_OCCA=YES.  Stop.
+  $ echo $?
+  2
+
+  $ make config MFEM_USE_OCCA_METAL=YES MFEM_USE_OCCA=YES OCCA_DIR=~/dev/occa-ref
+  makefile:318: *** MFEM_USE_OCCA_METAL is experimental and Apple-GPU-only (it uses OCCA Metal mode, which requires macOS and Xcode); it cannot be enabled on this platform.  Stop.
+  $ echo $?
+  2
+  ```
+  Both fail with exit code 2 and leave no tracked file modified (`git status
+  --short` clean after each attempt).
 
 ### WP3 (OCCA Metal PA prototype)
 - "Existing OCCA Serial/OpenMP/CUDA behavior is unchanged."
