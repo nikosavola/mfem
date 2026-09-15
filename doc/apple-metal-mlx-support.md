@@ -1,8 +1,11 @@
 # Apple GPU acceleration for MFEM: Metal, MLX, and OCCA
 
-**Status:** research and implementation handoff  
-**Research snapshot:** 2026-09-15  
-**Audience:** MFEM maintainers and implementation agents  
+**Status:** research and implementation handoff
+
+**Research snapshot:** 2026-09-15
+
+**Audience:** MFEM maintainers and implementation agents
+
 **Versions examined:** MFEM at this checkout, MLX 0.32.2, and OCCA 2.0.0
 
 ## 1. Executive summary
@@ -57,6 +60,8 @@ reductions, restrictions, and safe fallback behavior have been demonstrated.
 - Do not enable CUDA/HIP Hypre device mode, GPU-aware MPI, UVM, CUB/hipCUB,
   cuSPARSE/hipSPARSE, or vendor BLAS merely because an Apple GPU is present.
 - Start with synchronous execution and host-staged MPI.
+- Retain MFEM's ownership of MPI; do not initialize MLX's distributed MPI
+  backend.
 - Keep Objective-C and Objective-C++ types out of MFEM public headers.
 - Treat MLX and OCCA support as optional and distinct from a future native
   Metal backend.
@@ -102,10 +107,12 @@ Backend bit values, family masks, and `DEVICE_MASK` are defined in
 (`general/device.cpp:319-355`). A new backend ID must be appended rather than
 renumbering the existing public bit values.
 
-The important safety property is that membership in `DEVICE_MASK` changes the
-memory class returned by `Device::GetDeviceMemoryType` and related APIs
-(`general/device.hpp:344-388`). It is therefore unsafe to add a Metal bit to
-`DEVICE_MASK` before all generic fallback paths are made Metal-safe.
+The important safety property is that `Device::UpdateMemoryTypeAndClass` uses
+`Device::Allows(DEVICE_MASK)` to select device memory and
+`MemoryClass::DEVICE` (`general/device.cpp:357-423`). `Read`, `Write`, and
+`ReadWrite` then request that configured class (`general/device.hpp:295-388`).
+It is therefore unsafe to add a Metal bit to `DEVICE_MASK` before all generic
+fallback paths are made Metal-safe.
 
 Device queries in `general/device.cpp:426-477` and
 `general/device.cpp:622-801` assume CUDA or HIP. Metal implementations must
@@ -263,7 +270,7 @@ kernels through `mlx::core::fast::metal_kernel`.
 
 The custom-kernel API accepts MSL source, input arrays, output shapes and
 dtypes, launch dimensions, threadgroup dimensions, template parameters, and
-compile options. It is sufficient to express explicit PA kernels with
+compile options. It is sufficient to express explicit PA kernels with static
 threadgroup memory, barriers, and supported atomics. It does not translate an
 MFEM C++ lambda.
 
@@ -284,8 +291,9 @@ MFEM C++ lambda.
   is C++17.
 - Metal builds require a recent Xcode, macOS SDK, and deployment target; the
   examined release requires CMake 3.25 or newer and macOS 14 or newer.
-- The C++ library is built from source rather than consumed as a stable system
-  framework.
+- Standalone C++ installation is source-based. A CMake package from the Python
+  distribution may also be located using `python -m mlx --cmake-dir`, but that
+  introduces Python packaging into dependency discovery.
 - A statically linked executable must be able to find MLX's `mlx.metallib`,
   normally beside the executable or through `METAL_PATH`.
 - Constructing an MLX array from an arbitrary pointer is only zero-copy when
@@ -298,6 +306,23 @@ MFEM C++ lambda.
   MFEM pointer alone.
 - Lazy execution requires explicit evaluation or synchronization before MFEM
   host access, MPI, destruction, or a non-MLX consumer.
+- No stable public C++ constructor for an arbitrary existing `MTLBuffer`, public
+  C++ DLPack bridge, or sparse matrix/SpMV/solver layer was found.
+- `fast::metal_kernel` exposes static threadgroup arrays but not a dynamic
+  threadgroup-memory byte count. MLX's precompiled custom-primitive example
+  offers lower-level control, including dynamic threadgroup memory, by using
+  backend APIs whose stability is weaker.
+- GPU scatter does not bounds-check indices. Assembly-like scatter use needs
+  MFEM-side validation plus contention and determinism tests.
+- MFEM's tensor helpers generally use first-index-contiguous conventions,
+  whereas MLX defaults to row-major, last-index-contiguous arrays. A zero-copy
+  tensor adapter must reverse shapes, provide validated strides, or convert
+  layout explicitly.
+- MLX's own MPI backend initializes and finalizes Open MPI and has no public
+  route for attaching MFEM's existing communicator. It must not be used by the
+  prototype.
+- Some float32 matrix and convolution paths may use reduced precision by
+  default. Strict numerical comparisons must test with `MLX_ENABLE_TF32=0`.
 - MLX is a fast-moving 0.x dependency, so pinning and API-isolation are
   important.
 
@@ -311,6 +336,8 @@ as the implementation of generic `MFEM_FORALL`. The prototype should answer:
 4. Can the required `mlx.metallib` be found from build-tree, installed, static,
    shared, test, and MPI executables?
 5. Is requiring C++20 acceptable only when `MFEM_USE_MLX=ON`?
+6. Can a separately compiled C++20 adapter with a C or C++17-compatible facade
+   contain the language-version change?
 
 The least invasive first implementation keeps MFEM memory host-accessible,
 wraps inputs at the operator boundary, evaluates eagerly at that boundary, and
@@ -480,8 +507,9 @@ multiple explicit backends become permanent.
 ### 6.3 Native runtime boundary
 
 If direct Metal is selected, add a pure C++ facade, for example
-`general/metal.hpp`, with implementation details in `general/metal.mm`.
-Responsibilities should include:
+`general/metal.hpp`. Its implementation can use Objective-C++ in
+`general/metal.mm` or remain C++ with metal-cpp; `.mm` build rules are needed
+only for the former. Responsibilities should include:
 
 - device and queue creation;
 - shared-buffer allocation and reverse lookup;
@@ -537,7 +565,7 @@ This is an inventory, not a request to change every file in the first patch.
 | Kernel macros | `general/backends.hpp` | Add only abstractions supported by the selected explicit-kernel route; do not redefine CUDA/HIP feature macros. |
 | Dispatch | `general/forall.hpp` | Add Metal limits or launch hooks only after there is a real implementation; keep unsupported generic closures safe. |
 | Memory contracts | `general/mem_manager.hpp`, `general/mem_manager.cpp` | Add controller/bridge, alias tests, validity transitions, and synchronization. Reuse generic `MemoryType::DEVICE` only for a complete native backend. |
-| Native runtime | new private C++/Objective-C++ files under `general/` | Encapsulate Metal API types, buffers, queue, pipelines, and diagnostics. |
+| Native runtime | new private C++/Objective-C++ files under `general/` | Encapsulate Metal API types, buffers, queue, pipelines, and diagnostics; choose `.cpp` with metal-cpp or `.mm` deliberately. |
 | MLX adapter | new private files under `general/` or `fem/` | Isolate MLX headers, array wrapping, eval/sync, output ownership, and dtype checks. |
 | OCCA adapter | `general/occa.hpp`, `general/occa.cpp`, `general/device.cpp` | Recognize tested Metal mode and wrap actual Metal resources rather than CPU pointers. |
 | OCCA kernels | `fem/occa.okl` | Remove hard-coded `double`, validate generated MSL, and preserve CPU/CUDA behavior. |
@@ -564,7 +592,8 @@ activate a public backend early to make a narrow test pass.
 
 ### WP0: reproducible feasibility harness
 
-**Dependencies:** none  
+**Dependencies:** none
+
 **Purpose:** establish one Apple Silicon machine and pinned toolchain as the
 reference environment.
 
@@ -590,7 +619,8 @@ reference environment.
 
 ### WP1: memory interoperability experiments
 
-**Dependencies:** WP0  
+**Dependencies:** WP0
+
 **Purpose:** answer the highest-risk ownership questions before operator work.
 
 **Deliverables**
@@ -616,26 +646,31 @@ reference environment.
 
 ### WP2: optional build-system skeleton
 
-**Dependencies:** WP0 and a decision to continue a route  
+**Dependencies:** WP0 and a decision to continue a route
+
 **Purpose:** make experiments reproducible without changing default builds.
 
 **Deliverables**
 
-- Apple-only experimental option for the selected dependency/runtime.
+- Apple-only experimental CMake option for the selected dependency/runtime.
 - Dependency and toolchain version diagnostics.
 - Feature macros and installed-package exports.
 - Static/shared and build-tree/installed resource discovery.
 - Clear failure on unsupported platforms, precision, or dependency versions.
+- For MLX, consume the exported target named `mlx`; do not assume an
+  `MLX::mlx` target. Defer GNU-make dependency support until WP6 selects MLX as
+  a maintained route.
 
 **Acceptance**
 
-- Default Linux and macOS builds remain unchanged.
-- Enabled CMake and GNU make builds report equivalent capabilities.
+- Default Linux and macOS builds, including GNU make, remain unchanged.
+- The enabled CMake build reports the experimental capability accurately.
 - Relocated installed test executables find required shader resources.
 
 ### WP3: OCCA Metal PA prototype
 
-**Dependencies:** WP1 and WP2  
+**Dependencies:** WP1 and WP2
+
 **Purpose:** test the shortest path to existing PA kernels.
 
 **Deliverables**
@@ -660,16 +695,20 @@ reference environment.
 
 ### WP4: MLX operator prototype
 
-**Dependencies:** WP1 and WP2  
+**Dependencies:** WP1 and WP2
+
 **Purpose:** determine whether MLX is a maintainable MFEM operator backend.
 
 **Deliverables**
 
 - Private adapter that isolates MLX headers and enforces `real_t == float`.
+- Evaluate both an MLX-enabled C++20 MFEM target and a separate C++20 adapter
+  with a C/C++17-compatible facade.
 - One MLX primitive vector operation and one FEM custom Metal kernel.
 - Explicit evaluation/synchronization boundaries.
 - Measured input wrapping, output allocation/copy/rebinding, and graph overhead.
 - Packaging tests for `mlx.metallib`.
+- Strict-float tests with `MLX_ENABLE_TF32=0`; do not initialize MLX MPI.
 
 **Acceptance**
 
@@ -677,6 +716,7 @@ reference environment.
 - Aliased vectors and `ReadWrite` cases have defined behavior.
 - Cold and warm timings are reported separately.
 - A moved installed executable finds MLX resources without source-tree paths.
+- MFEM retains sole ownership of MPI initialization and finalization.
 
 **Stop condition**
 
@@ -685,7 +725,8 @@ reference environment.
 
 ### WP5: direct named-Metal baseline
 
-**Dependencies:** WP1 and WP2  
+**Dependencies:** WP1 and WP2
+
 **Purpose:** provide the control implementation and fallback architecture.
 
 **Deliverables**
@@ -704,7 +745,8 @@ reference environment.
 
 ### WP6: architecture decision
 
-**Dependencies:** WP3, WP4, and WP5 results  
+**Dependencies:** WP3, WP4, and WP5 results
+
 **Purpose:** select one production direction rather than maintaining three
 equivalent implementations.
 
@@ -732,7 +774,8 @@ Publish the result as an architecture decision record before adding a complete
 
 ### WP7: safe simulation milestone
 
-**Dependencies:** WP6  
+**Dependencies:** WP6
+
 **Purpose:** run a complete, useful MFEM solve.
 
 **Deliverables**
@@ -752,7 +795,8 @@ Publish the result as an architecture decision record before adding a complete
 
 ### WP8: production hardening
 
-**Dependencies:** WP7  
+**Dependencies:** WP7
+
 **Purpose:** prepare an upstream-supported feature.
 
 **Deliverables**
@@ -788,6 +832,9 @@ Publish the result as an architecture decision record before adding a complete
 Current GitHub CI has macOS GNU-make coverage but not equivalent macOS CMake
 coverage in `.github/workflows/builds-and-tests.yml:52-69`. Compilation jobs
 must be distinguished from tests that have access to a physical Apple GPU.
+The current GPU unit-test entry point also skips single-precision builds
+(`tests/unit/gpu_unit_test_main.cpp:16-27`), so it cannot validate the initial
+MLX/Metal target without a dedicated single-precision executable.
 
 ### 9.2 Memory
 
@@ -824,6 +871,8 @@ Adapt patterns from `tests/unit/miniapps/test_debug_device.cpp`:
 - Apply and diagonal assembly.
 - Coefficient variants exercised by existing PA tests.
 - CPU-reference operator action and end-to-end solution norms.
+- MLX strict-float (`MLX_ENABLE_TF32=0`) and default-mode comparisons for any
+  operation that may use reduced precision.
 - Restrictions and prolongation required by the target examples.
 
 Existing starting points include
@@ -938,8 +987,10 @@ variance over repeated warm runs, while reporting cold start separately.
 - [MLX repository](https://github.com/ml-explore/mlx)
 - [MLX 0.32.2 release](https://github.com/ml-explore/mlx/releases/tag/v0.32.2)
 - [Build and installation guide](https://ml-explore.github.io/mlx/build/html/install.html)
+- [Using MLX from C++](https://ml-explore.github.io/mlx/build/html/dev/mlx_in_cpp.html)
 - [Custom Metal kernels](https://ml-explore.github.io/mlx/build/html/dev/custom_metal_kernels.html)
 - [Memory management](https://ml-explore.github.io/mlx/build/html/dev/memory_management.html)
+- [Precision](https://ml-explore.github.io/mlx/build/html/usage/precision.html)
 - [C++ API source: arrays](https://github.com/ml-explore/mlx/blob/v0.32.2/mlx/array.h)
 - [C++ API source: custom kernels](https://github.com/ml-explore/mlx/blob/v0.32.2/mlx/fast.h)
 - [Metal backend source](https://github.com/ml-explore/mlx/tree/v0.32.2/mlx/backend/metal)
