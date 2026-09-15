@@ -397,6 +397,7 @@ void OccaPADiffusionSetup2D(const int D1D,
    occa::properties props;
    props["defines/D1D"] = D1D;
    props["defines/Q1D"] = Q1D;
+   OccaSetRealTypeDefine(props);
    const occa::memory o_W = OccaMemoryRead(W.GetMemory(), W.Size());
    const occa::memory o_J = OccaMemoryRead(J.GetMemory(), J.Size());
    const occa::memory o_C = OccaMemoryRead(C.GetMemory(), C.Size());
@@ -425,6 +426,7 @@ void OccaPADiffusionSetup3D(const int D1D,
    occa::properties props;
    props["defines/D1D"] = D1D;
    props["defines/Q1D"] = Q1D;
+   OccaSetRealTypeDefine(props);
    const occa::memory o_W = OccaMemoryRead(W.GetMemory(), W.Size());
    const occa::memory o_J = OccaMemoryRead(J.GetMemory(), J.Size());
    const occa::memory o_C = OccaMemoryRead(C.GetMemory(), C.Size());
@@ -456,6 +458,7 @@ void OccaPADiffusionApply2D(const int D1D,
    occa::properties props;
    props["defines/D1D"] = D1D;
    props["defines/Q1D"] = Q1D;
+   OccaSetRealTypeDefine(props);
    const occa::memory o_B = OccaMemoryRead(B.GetMemory(), B.Size());
    const occa::memory o_G = OccaMemoryRead(G.GetMemory(), G.Size());
    const occa::memory o_Bt = OccaMemoryRead(Bt.GetMemory(), Bt.Size());
@@ -504,6 +507,7 @@ void OccaPADiffusionApply3D(const int D1D,
    occa::properties props;
    props["defines/D1D"] = D1D;
    props["defines/Q1D"] = Q1D;
+   OccaSetRealTypeDefine(props);
    const occa::memory o_B = OccaMemoryRead(B.GetMemory(), B.Size());
    const occa::memory o_G = OccaMemoryRead(G.GetMemory(), G.Size());
    const occa::memory o_Bt = OccaMemoryRead(Bt.GetMemory(), Bt.Size());

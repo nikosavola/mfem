@@ -9,6 +9,27 @@
 // terms of the BSD-3 license. We welcome feedback and contributions, see file
 // CONTRIBUTING.md for details.
 
+// MFEM_OKL_SINGLE is defined via occa::properties (see general/occa.hpp,
+// OccaSetRealTypeDefine()) to mirror MFEM's compile-time real_t: it is
+// defined only when MFEM was built with MFEM_USE_SINGLE. Apple Metal GPUs
+// have no native `double`, so a future occa-metal kernel build must go
+// through the single-precision path; on Serial/OpenMP/CUDA this only
+// changes the numeric type used below, not the algorithm, and is kept
+// synchronized with the real_t-sized buffers passed in from MFEM (see the
+// OccaMemoryRead/OccaMemoryWrite call sites in
+// fem/integ/bilininteg_{mass,diffusion}_kernels.cpp).
+// Deliberately a macro, not a typedef: OCCA 2's OKL source transform emits
+// a duplicated "typedef typedef <underlying-type> okl_real_t * <Name>_t;"
+// (a compile error) when a later `typedef okl_real_t* Foo_t @dim(...)`
+// refers to a name that was itself introduced by typedef -- i.e. it does
+// not handle "typedef of a typedef" here. A #define is expanded by the
+// preprocessor before OCCA's parser ever sees the name, which avoids that.
+#ifdef MFEM_OKL_SINGLE
+#define okl_real_t float
+#else
+#define okl_real_t double
+#endif
+
 #if Q1D < D1D
 #  define M1D D1D
 #else
@@ -26,36 +47,36 @@
 #define QUAD_2D_ID(X, Y) (X + ((Y) * Q1D))
 #define QUAD_3D_ID(X, Y, Z) (X + ((Y) * Q1D) + ((Z) * Q2D))
 
-typedef double* DofToQuad_t @dim(Q1D, D1D);
-typedef double* QuadToDof_t @dim(D1D, Q1D);
+typedef okl_real_t* DofToQuad_t @dim(Q1D, D1D);
+typedef okl_real_t* QuadToDof_t @dim(D1D, Q1D);
 
-typedef double* DLocal2D_t @dim(D1D, D1D, NE);
-typedef double* QLocal2D_t @dim(Q1D, Q1D, NE);
+typedef okl_real_t* DLocal2D_t @dim(D1D, D1D, NE);
+typedef okl_real_t* QLocal2D_t @dim(Q1D, Q1D, NE);
 
-typedef double* DLocal3D_t @dim(D1D, D1D, D1D, NE);
-typedef double* QLocal3D_t @dim(Q1D, Q1D, Q1D, NE);
+typedef okl_real_t* DLocal3D_t @dim(D1D, D1D, D1D, NE);
+typedef okl_real_t* QLocal3D_t @dim(Q1D, Q1D, Q1D, NE);
 
-typedef double* Jacobian2D_t @dim(Q2D, 2, 2, NE);
-typedef double* Jacobian3D_t @dim(Q3D, 3, 3, NE);
+typedef okl_real_t* Jacobian2D_t @dim(Q2D, 2, 2, NE);
+typedef okl_real_t* Jacobian3D_t @dim(Q3D, 3, 3, NE);
 
-typedef double* Coeff2D_t @dim(Q2D, NE);
-typedef double* Coeff3D_t @dim(Q3D, NE);
+typedef okl_real_t* Coeff2D_t @dim(Q2D, NE);
+typedef okl_real_t* Coeff3D_t @dim(Q3D, NE);
 
-typedef double* SymmOperator2D_t @dim(Q2D, 3, NE);
-typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
+typedef okl_real_t* SymmOperator2D_t @dim(Q2D, 3, NE);
+typedef okl_real_t* SymmOperator3D_t @dim(Q3D, 6, NE);
 
 @kernel void DiffusionSetup2D(const int NE,
-                              @restrict const double *W,
+                              @restrict const okl_real_t *W,
                               @restrict const Jacobian2D_t J,
                               @restrict const Coeff2D_t C,
                               @restrict SymmOperator2D_t op,
                               const bool const_c) {
   for (int e = 0; e < NE; ++e; @outer) {
     for (int q = 0; q < Q2D; ++q; @inner) {
-      const double J11 = J(q, 0, 0, e), J12 = J(q, 1, 0, e);
-      const double J21 = J(q, 0, 1, e), J22 = J(q, 1, 1, e);
-      const double coeff = const_c ? C(0,0) : C(q,e);
-      const double c_detJ = W[q] * coeff / ((J11 * J22) - (J21 * J12));
+      const okl_real_t J11 = J(q, 0, 0, e), J12 = J(q, 1, 0, e);
+      const okl_real_t J21 = J(q, 0, 1, e), J22 = J(q, 1, 1, e);
+      const okl_real_t coeff = const_c ? C(0,0) : C(q,e);
+      const okl_real_t c_detJ = W[q] * coeff / ((J11 * J22) - (J21 * J12));
       op(q, 0, e) =  c_detJ * (J21*J21 + J22*J22); // (1,1)
       op(q, 1, e) = -c_detJ * (J21*J11 + J22*J12); // (1,2), (2,1)
       op(q, 2, e) =  c_detJ * (J11*J11 + J12*J12); // (2,2)
@@ -64,35 +85,35 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
 }
 
 @kernel void DiffusionSetup3D(const int NE,
-                              @restrict const double *W,
+                              @restrict const okl_real_t *W,
                               @restrict const Jacobian3D_t J,
                               @restrict const Coeff3D_t C,
                               @restrict SymmOperator3D_t op,
                               const bool const_c) {
   for (int e = 0; e < NE; ++e; @outer) {
     for (int q = 0; q < Q3D; ++q; @inner) {
-      const double J11 = J(q, 0, 0, e), J12 = J(q, 1, 0, e), J13 = J(q, 2, 0, e);
-      const double J21 = J(q, 0, 1, e), J22 = J(q, 1, 1, e), J23 = J(q, 2, 1, e);
-      const double J31 = J(q, 0, 2, e), J32 = J(q, 1, 2, e), J33 = J(q, 2, 2, e);
+      const okl_real_t J11 = J(q, 0, 0, e), J12 = J(q, 1, 0, e), J13 = J(q, 2, 0, e);
+      const okl_real_t J21 = J(q, 0, 1, e), J22 = J(q, 1, 1, e), J23 = J(q, 2, 1, e);
+      const okl_real_t J31 = J(q, 0, 2, e), J32 = J(q, 1, 2, e), J33 = J(q, 2, 2, e);
 
-      const double detJ = ((J11 * J22 * J33) + (J12 * J23 * J31) + (J13 * J21 * J32) -
+      const okl_real_t detJ = ((J11 * J22 * J33) + (J12 * J23 * J31) + (J13 * J21 * J32) -
                            (J13 * J22 * J31) - (J12 * J21 * J33) - (J11 * J23 * J32));
 
-      const double coeff = const_c ? C(0,0) : C(q,e);
-      const double c_detJ = W[q] * coeff / detJ;
+      const okl_real_t coeff = const_c ? C(0,0) : C(q,e);
+      const okl_real_t c_detJ = W[q] * coeff / detJ;
 
       // adj(J)
-      const double A11 = (J22 * J33) - (J23 * J32);
-      const double A12 = (J23 * J31) - (J21 * J33);
-      const double A13 = (J21 * J32) - (J22 * J31);
+      const okl_real_t A11 = (J22 * J33) - (J23 * J32);
+      const okl_real_t A12 = (J23 * J31) - (J21 * J33);
+      const okl_real_t A13 = (J21 * J32) - (J22 * J31);
 
-      const double A21 = (J13 * J32) - (J12 * J33);
-      const double A22 = (J11 * J33) - (J13 * J31);
-      const double A23 = (J12 * J31) - (J11 * J32);
+      const okl_real_t A21 = (J13 * J32) - (J12 * J33);
+      const okl_real_t A22 = (J11 * J33) - (J13 * J31);
+      const okl_real_t A23 = (J12 * J31) - (J11 * J32);
 
-      const double A31 = (J12 * J23) - (J13 * J22);
-      const double A32 = (J13 * J21) - (J11 * J23);
-      const double A33 = (J11 * J22) - (J12 * J21);
+      const okl_real_t A31 = (J12 * J23) - (J13 * J22);
+      const okl_real_t A32 = (J13 * J21) - (J11 * J23);
+      const okl_real_t A33 = (J11 * J22) - (J12 * J21);
 
       // adj(J)^Tadj(J)
       op(q, 0, e) = c_detJ * (A11*A11 + A21*A21 + A31*A31); // (1,1)
@@ -116,7 +137,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
    // Iterate over elements
    for (int e = 0; e < NE; ++e; @outer) {
       for (int dummy = 0; dummy < 1; ++dummy; @inner) {
-         double grad[Q1D][Q1D][2];
+         okl_real_t grad[Q1D][Q1D][2];
          for (int qy = 0; qy < Q1D; ++qy) {
             for (int qx = 0; qx < Q1D; ++qx) {
                grad[qy][qx][0] = 0;
@@ -125,14 +146,14 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
          }
 
          for (int dy = 0; dy < D1D; ++dy) {
-            double gradX[Q1D][2];
+            okl_real_t gradX[Q1D][2];
             for (int qx = 0; qx < Q1D; ++qx) {
                gradX[qx][0] = 0;
                gradX[qx][1] = 0;
             }
 
             for (int dx = 0; dx < D1D; ++dx) {
-               const double s = X(dx, dy, e);
+               const okl_real_t s = X(dx, dy, e);
                for (int qx = 0; qx < Q1D; ++qx) {
                   gradX[qx][0] += s * B(qx, dx);
                   gradX[qx][1] += s * G(qx, dx);
@@ -140,8 +161,8 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
             }
 
             for (int qy = 0; qy < Q1D; ++qy) {
-               const double wy  = B(qy, dy);
-               const double wDy = G(qy, dy);
+               const okl_real_t wy  = B(qy, dy);
+               const okl_real_t wDy = G(qy, dy);
                for (int qx = 0; qx < Q1D; ++qx) {
                   grad[qy][qx][0] += gradX[qx][1] * wy;
                   grad[qy][qx][1] += gradX[qx][0] * wDy;
@@ -153,12 +174,12 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
          for (int qy = 0; qy < Q1D; ++qy) {
             for (int qx = 0; qx < Q1D; ++qx) {
                const int q = QUAD_2D_ID(qx, qy);
-               const double O11 = op(q, 0, e);
-               const double O12 = op(q, 1, e);
-               const double O22 = op(q, 2, e);
+               const okl_real_t O11 = op(q, 0, e);
+               const okl_real_t O12 = op(q, 1, e);
+               const okl_real_t O22 = op(q, 2, e);
 
-               const double gradX = grad[qy][qx][0];
-               const double gradY = grad[qy][qx][1];
+               const okl_real_t gradX = grad[qy][qx][0];
+               const okl_real_t gradY = grad[qy][qx][1];
 
                grad[qy][qx][0] = (O11 * gradX) + (O12 * gradY);
                grad[qy][qx][1] = (O12 * gradX) + (O22 * gradY);
@@ -166,26 +187,26 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
          }
 
          for (int qy = 0; qy < Q1D; ++qy) {
-            double gradX[D1D][2];
+            okl_real_t gradX[D1D][2];
             for (int dx = 0; dx < D1D; ++dx) {
                gradX[dx][0] = 0;
                gradX[dx][1] = 0;
             }
 
             for (int qx = 0; qx < Q1D; ++qx) {
-               const double gX = grad[qy][qx][0];
-               const double gY = grad[qy][qx][1];
+               const okl_real_t gX = grad[qy][qx][0];
+               const okl_real_t gY = grad[qy][qx][1];
                for (int dx = 0; dx < D1D; ++dx) {
-                  const double wx  = Bt(dx, qx);
-                  const double wDx = Gt(dx, qx);
+                  const okl_real_t wx  = Bt(dx, qx);
+                  const okl_real_t wDx = Gt(dx, qx);
                   gradX[dx][0] += gX * wDx;
                   gradX[dx][1] += gY * wx;
                }
             }
 
             for (int dy = 0; dy < D1D; ++dy) {
-               const double wy  = Bt(dy, qy);
-               const double wDy = Gt(dy, qy);
+               const okl_real_t wy  = Bt(dy, qy);
+               const okl_real_t wDy = Gt(dy, qy);
                for (int dx = 0; dx < D1D; ++dx) {
                   Y(dx, dy, e) += ((gradX[dx][0] * wy) +
                                    (gradX[dx][1] * wDy));
@@ -207,18 +228,18 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
    // Iterate over elements
    for (int eOff = 0; eOff < NE; eOff += M2_ELEMENT_BATCH; @outer) {
       // Store dof <--> quad mappings
-      @shared double s_B[DQ1D] @dim(Q1D, D1D);
-      @shared double s_G[DQ1D] @dim(Q1D, D1D);
-      @shared double s_Bt[DQ1D] @dim(D1D, Q1D);
-      @shared double s_Gt[DQ1D] @dim(D1D, Q1D);
+      @shared okl_real_t s_B[DQ1D] @dim(Q1D, D1D);
+      @shared okl_real_t s_G[DQ1D] @dim(Q1D, D1D);
+      @shared okl_real_t s_Bt[DQ1D] @dim(D1D, Q1D);
+      @shared okl_real_t s_Gt[DQ1D] @dim(D1D, Q1D);
 
       // Store xy planes in @shared memory
-      @shared double s_xy[DQ1D] @dim(D1D, Q1D);
-      @shared double s_xDy[DQ1D] @dim(D1D, Q1D);
-      @shared double s_grad[2 * Q2D] @dim(2, Q1D, Q1D);
+      @shared okl_real_t s_xy[DQ1D] @dim(D1D, Q1D);
+      @shared okl_real_t s_xDy[DQ1D] @dim(D1D, Q1D);
+      @shared okl_real_t s_grad[2 * Q2D] @dim(2, Q1D, Q1D);
 
-      @exclusive double r_x[M1D];
-      @exclusive double r_y[Q1D];
+      @exclusive okl_real_t r_x[M1D];
+      @exclusive okl_real_t r_y[Q1D];
 
       for (int x = 0; x < M1D; ++x; @inner) {
          for (int id = x; id < DQ1D; id += M1D) {
@@ -241,8 +262,8 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
                      r_x[dy] = X(dx, dy, e);
                   }
                   for (int qy = 0; qy < Q1D; ++qy) {
-                     double xy = 0;
-                     double xDy = 0;
+                     okl_real_t xy = 0;
+                     okl_real_t xDy = 0;
                      for (int dy = 0; dy < D1D; ++dy) {
                         xy  += r_x[dy] * s_B(qy, dy);
                         xDy += r_x[dy] * s_G(qy, dy);
@@ -255,16 +276,16 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
             for (int qy = 0; qy < M1D; ++qy; @inner) {
                if (qy < Q1D) {
                   for (int qx = 0; qx < Q1D; ++qx) {
-                     double gradX = 0, gradY = 0;
+                     okl_real_t gradX = 0, gradY = 0;
                      for (int dx = 0; dx < D1D; ++dx) {
                         gradX += s_xy(dx, qy)  * s_G(qx, dx);
                         gradY += s_xDy(dx, qy) * s_B(qx, dx);
                      }
 
                      const int q = QUAD_2D_ID(qx, qy);
-                     const double O11 = op(q, 0, e);
-                     const double O12 = op(q, 1, e);
-                     const double O22 = op(q, 2, e);
+                     const okl_real_t O11 = op(q, 0, e);
+                     const okl_real_t O12 = op(q, 1, e);
+                     const okl_real_t O22 = op(q, 2, e);
 
                      s_grad(0, qx, qy) = (O11 * gradX) + (O12 * gradY);
                      s_grad(1, qx, qy) = (O12 * gradX) + (O22 * gradY);
@@ -283,8 +304,8 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
                      r_y[qy] = s_grad(1, qx, qy);
                   }
                   for (int dy = 0; dy < D1D; ++dy) {
-                     double xy  = 0;
-                     double xDy = 0;
+                     okl_real_t xy  = 0;
+                     okl_real_t xDy = 0;
                      for (int qy = 0; qy < Q1D; ++qy) {
                         xy  += r_x[qy] * s_Bt(dy, qy);
                         xDy += r_y[qy] * s_Gt(dy, qy);
@@ -297,7 +318,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
             for (int dx = 0; dx < D1D; ++dx; @inner) {
                if (dx < D1D) {
                   for (int dy = 0; dy < D1D; ++dy) {
-                     double s = 0;
+                     okl_real_t s = 0;
                      for (int qx = 0; qx < Q1D; ++qx) {
                         s += ((s_xy(dy, qx) * s_Gt(dx, qx)) +
                               (s_xDy(dy, qx) * s_Bt(dx, qx)));
@@ -322,7 +343,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
   // Iterate over elements
   for (int e = 0; e < NE; ++e; @outer) {
     for (int dummy = 0; dummy < 1; ++dummy; @inner) {
-      double grad[Q1D][Q1D][Q1D][4];
+      okl_real_t grad[Q1D][Q1D][Q1D][4];
       for (int qz = 0; qz < Q1D; ++qz) {
         for (int qy = 0; qy < Q1D; ++qy) {
           for (int qx = 0; qx < Q1D; ++qx) {
@@ -334,7 +355,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       }
 
       for (int dz = 0; dz < D1D; ++dz) {
-        double gradXY[Q1D][Q1D][4];
+        okl_real_t gradXY[Q1D][Q1D][4];
         for (int qy = 0; qy < Q1D; ++qy) {
           for (int qx = 0; qx < Q1D; ++qx) {
             gradXY[qy][qx][0] = 0;
@@ -344,14 +365,14 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int dy = 0; dy < D1D; ++dy) {
-          double gradX[Q1D][2];
+          okl_real_t gradX[Q1D][2];
           for (int qx = 0; qx < Q1D; ++qx) {
             gradX[qx][0] = 0;
             gradX[qx][1] = 0;
           }
 
           for (int dx = 0; dx < D1D; ++dx) {
-            const double s = X(dx, dy, dz, e);
+            const okl_real_t s = X(dx, dy, dz, e);
             for (int qx = 0; qx < Q1D; ++qx) {
               gradX[qx][0] += s * B(qx, dx);
               gradX[qx][1] += s * G(qx, dx);
@@ -359,11 +380,11 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
           }
 
           for (int qy = 0; qy < Q1D; ++qy) {
-            const double wy  = B(qy, dy);
-            const double wDy = G(qy, dy);
+            const okl_real_t wy  = B(qy, dy);
+            const okl_real_t wDy = G(qy, dy);
             for (int qx = 0; qx < Q1D; ++qx) {
-              const double wx  = gradX[qx][0];
-              const double wDx = gradX[qx][1];
+              const okl_real_t wx  = gradX[qx][0];
+              const okl_real_t wDx = gradX[qx][1];
               gradXY[qy][qx][0] += wDx * wy;
               gradXY[qy][qx][1] += wx  * wDy;
               gradXY[qy][qx][2] += wx  * wy;
@@ -372,8 +393,8 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int qz = 0; qz < Q1D; ++qz) {
-          const double wz  = B(qz, dz);
-          const double wDz = G(qz, dz);
+          const okl_real_t wz  = B(qz, dz);
+          const okl_real_t wDz = G(qz, dz);
           for (int qy = 0; qy < Q1D; ++qy) {
             for (int qx = 0; qx < Q1D; ++qx) {
               grad[qz][qy][qx][0] += gradXY[qy][qx][0] * wz;
@@ -389,16 +410,16 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         for (int qy = 0; qy < Q1D; ++qy) {
           for (int qx = 0; qx < Q1D; ++qx) {
             const int q = QUAD_3D_ID(qx, qy, qz);
-            const double O11 = op(q, 0, e);
-            const double O12 = op(q, 1, e);
-            const double O13 = op(q, 2, e);
-            const double O22 = op(q, 3, e);
-            const double O23 = op(q, 4, e);
-            const double O33 = op(q, 5, e);
+            const okl_real_t O11 = op(q, 0, e);
+            const okl_real_t O12 = op(q, 1, e);
+            const okl_real_t O13 = op(q, 2, e);
+            const okl_real_t O22 = op(q, 3, e);
+            const okl_real_t O23 = op(q, 4, e);
+            const okl_real_t O33 = op(q, 5, e);
 
-            const double gradX = grad[qz][qy][qx][0];
-            const double gradY = grad[qz][qy][qx][1];
-            const double gradZ = grad[qz][qy][qx][2];
+            const okl_real_t gradX = grad[qz][qy][qx][0];
+            const okl_real_t gradY = grad[qz][qy][qx][1];
+            const okl_real_t gradZ = grad[qz][qy][qx][2];
 
             grad[qz][qy][qx][0] = (O11 * gradX) + (O12 * gradY) + (O13 * gradZ);
             grad[qz][qy][qx][1] = (O12 * gradX) + (O22 * gradY) + (O23 * gradZ);
@@ -408,7 +429,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       }
 
       for (int qz = 0; qz < Q1D; ++qz) {
-        double gradXY[D1D][D1D][4];
+        okl_real_t gradXY[D1D][D1D][4];
         for (int dy = 0; dy < D1D; ++dy) {
           for (int dx = 0; dx < D1D; ++dx) {
             gradXY[dy][dx][0] = 0;
@@ -418,7 +439,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int qy = 0; qy < Q1D; ++qy) {
-          double gradX[D1D][4];
+          okl_real_t gradX[D1D][4];
           for (int dx = 0; dx < D1D; ++dx) {
             gradX[dx][0] = 0;
             gradX[dx][1] = 0;
@@ -426,12 +447,12 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
           }
 
           for (int qx = 0; qx < Q1D; ++qx) {
-            const double gX = grad[qz][qy][qx][0];
-            const double gY = grad[qz][qy][qx][1];
-            const double gZ = grad[qz][qy][qx][2];
+            const okl_real_t gX = grad[qz][qy][qx][0];
+            const okl_real_t gY = grad[qz][qy][qx][1];
+            const okl_real_t gZ = grad[qz][qy][qx][2];
             for (int dx = 0; dx < D1D; ++dx) {
-              const double wx  = Bt(dx, qx);
-              const double wDx = Gt(dx, qx);
+              const okl_real_t wx  = Bt(dx, qx);
+              const okl_real_t wDx = Gt(dx, qx);
               gradX[dx][0] += gX * wDx;
               gradX[dx][1] += gY * wx;
               gradX[dx][2] += gZ * wx;
@@ -439,8 +460,8 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
           }
 
           for (int dy = 0; dy < D1D; ++dy) {
-            const double wy  = Bt(dy, qy);
-            const double wDy = Gt(dy, qy);
+            const okl_real_t wy  = Bt(dy, qy);
+            const okl_real_t wDy = Gt(dy, qy);
             for (int dx = 0; dx < D1D; ++dx) {
               gradXY[dy][dx][0] += gradX[dx][0] * wy;
               gradXY[dy][dx][1] += gradX[dx][1] * wDy;
@@ -450,8 +471,8 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int dz = 0; dz < D1D; ++dz) {
-          const double wz  = Bt(dz, qz);
-          const double wDz = Gt(dz, qz);
+          const okl_real_t wz  = Bt(dz, qz);
+          const okl_real_t wDz = Gt(dz, qz);
           for (int dy = 0; dy < D1D; ++dy) {
             for (int dx = 0; dx < D1D; ++dx) {
               Y(dx, dy, dz, e) += ((gradXY[dy][dx][0] * wz) +
@@ -476,22 +497,22 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
   // Iterate over elements
   for (int e = 0; e < NE; ++e; @outer) {
     // Store dof <--> quad mappings
-    @shared double s_B[DQ1D] @dim(Q1D, D1D);
-    @shared double s_G[DQ1D] @dim(Q1D, D1D);
-    @shared double s_Bt[DQ1D] @dim(D1D, Q1D);
-    @shared double s_Gt[DQ1D] @dim(D1D, Q1D);
+    @shared okl_real_t s_B[DQ1D] @dim(Q1D, D1D);
+    @shared okl_real_t s_G[DQ1D] @dim(Q1D, D1D);
+    @shared okl_real_t s_Bt[DQ1D] @dim(D1D, Q1D);
+    @shared okl_real_t s_Gt[DQ1D] @dim(D1D, Q1D);
 
     // Store xy planes in @shared memory
-    @shared double s_z[M2D] @dim(M1D, M1D);
-    @shared double s_Dz[M2D] @dim(M1D, M1D);
-    @shared double s_xyDz[Q2D] @dim(Q1D, Q1D);
+    @shared okl_real_t s_z[M2D] @dim(M1D, M1D);
+    @shared okl_real_t s_Dz[M2D] @dim(M1D, M1D);
+    @shared okl_real_t s_xyDz[Q2D] @dim(Q1D, Q1D);
 
     // Store z axis as registers
-    @exclusive double r_qz[Q1D];
-    @exclusive double r_qDz[Q1D];
-    @exclusive double r_dDxyz[D1D];
-    @exclusive double r_dxDyz[D1D];
-    @exclusive double r_dxyDz[D1D];
+    @exclusive okl_real_t r_qz[Q1D];
+    @exclusive okl_real_t r_qDz[Q1D];
+    @exclusive okl_real_t r_dDxyz[D1D];
+    @exclusive okl_real_t r_dxDyz[D1D];
+    @exclusive okl_real_t r_dxyDz[D1D];
 
     for (int y = 0; y < M1D; ++y; @inner) {
       for (int x = 0; x < M1D; ++x; @inner) {
@@ -521,7 +542,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       for (int dx = 0; dx < M1D; ++dx; @inner) {
         if ((dx < D1D) && (dy < D1D)) {
           for (int dz = 0; dz < D1D; ++dz) {
-            const double s = X(dx, dy, dz, e);
+            const okl_real_t s = X(dx, dy, dz, e);
             // Calculate D -> Q in the Z axis
             for (int qz = 0; qz < Q1D; ++qz) {
               r_qz[qz]  += s * s_B(qz, dz);
@@ -546,17 +567,17 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       for (int qy = 0; qy < M1D; ++qy; @inner) {
         for (int qx = 0; qx < M1D; ++qx; @inner) {
           if ((qx < Q1D) && (qy < Q1D)) {
-            double Dxyz = 0;
-            double xDyz = 0;
-            double xyDz = 0;
+            okl_real_t Dxyz = 0;
+            okl_real_t xDyz = 0;
+            okl_real_t xyDz = 0;
             for (int dy = 0; dy < D1D; ++dy) {
-              const double wy  = s_B(qy, dy);
-              const double wDy = s_G(qy, dy);
+              const okl_real_t wy  = s_B(qy, dy);
+              const okl_real_t wDy = s_G(qy, dy);
               for (int dx = 0; dx < D1D; ++dx) {
-                const double wx  = s_B(qx, dx);
-                const double wDx = s_G(qx, dx);
-                const double z  = s_z(dx, dy);
-                const double Dz = s_Dz(dx, dy);
+                const okl_real_t wx  = s_B(qx, dx);
+                const okl_real_t wDx = s_G(qx, dx);
+                const okl_real_t z  = s_z(dx, dy);
+                const okl_real_t Dz = s_Dz(dx, dy);
                 Dxyz += wDx * wy  * z;
                 xDyz += wx  * wDy * z;
                 xyDz += wx  * wy  * Dz;
@@ -564,20 +585,20 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
             }
 
             const int q = QUAD_3D_ID(qx, qy, qz);
-            const double O11 = op(q, 0, e);
-            const double O12 = op(q, 1, e);
-            const double O13 = op(q, 2, e);
-            const double O22 = op(q, 3, e);
-            const double O23 = op(q, 4, e);
-            const double O33 = op(q, 5, e);
+            const okl_real_t O11 = op(q, 0, e);
+            const okl_real_t O12 = op(q, 1, e);
+            const okl_real_t O13 = op(q, 2, e);
+            const okl_real_t O22 = op(q, 3, e);
+            const okl_real_t O23 = op(q, 4, e);
+            const okl_real_t O33 = op(q, 5, e);
 
-            const double qDxyz = (O11 * Dxyz) + (O12 * xDyz) + (O13 * xyDz);
-            const double qxDyz = (O12 * Dxyz) + (O22 * xDyz) + (O23 * xyDz);
-            const double qxyDz = (O13 * Dxyz) + (O23 * xDyz) + (O33 * xyDz);
+            const okl_real_t qDxyz = (O11 * Dxyz) + (O12 * xDyz) + (O13 * xyDz);
+            const okl_real_t qxDyz = (O12 * Dxyz) + (O22 * xDyz) + (O23 * xyDz);
+            const okl_real_t qxyDz = (O13 * Dxyz) + (O23 * xDyz) + (O33 * xyDz);
 
             for (int dz = 0; dz < D1D; ++dz) {
-              const double wz  = s_Bt(dz, qz);
-              const double wDz = s_Gt(dz, qz);
+              const okl_real_t wz  = s_Bt(dz, qz);
+              const okl_real_t wDz = s_Gt(dz, qz);
               r_dDxyz[dz] += wz  * qDxyz;
               r_dxDyz[dz] += wz  * qxDyz;
               r_dxyDz[dz] += wDz * qxyDz;
@@ -585,7 +606,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
           }
         }
       }
-      @barrier("s_z_s_Dz_sync_1");
+      @barrier();
     }
     // Iterate over xy planes to compute solution
     for (int dz = 0; dz < D1D; ++dz) {
@@ -603,16 +624,16 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       for (int dy = 0; dy < M1D; ++dy; @inner) {
         for (int dx = 0; dx < M1D; ++dx; @inner) {
           if ((dx < D1D) && (dy < D1D)) {
-            double solZ = 0;
+            okl_real_t solZ = 0;
             for (int qy = 0; qy < Q1D; ++qy) {
-              const double wy  = s_Bt(dy, qy);
-              const double wDy = s_Gt(dy, qy);
+              const okl_real_t wy  = s_Bt(dy, qy);
+              const okl_real_t wDy = s_Gt(dy, qy);
               for (int qx = 0; qx < Q1D; ++qx) {
-                const double wx  = s_Bt(dx, qx);
-                const double wDx = s_Gt(dx, qx);
-                const double Dxyz = s_z(qx, qy);
-                const double xDyz = s_Dz(qx, qy);
-                const double xyDz = s_xyDz(qx, qy);
+                const okl_real_t wx  = s_Bt(dx, qx);
+                const okl_real_t wDx = s_Gt(dx, qx);
+                const okl_real_t Dxyz = s_z(qx, qy);
+                const okl_real_t xDyz = s_Dz(qx, qy);
+                const okl_real_t xyDz = s_xyDz(qx, qy);
                 solZ += ((wDx * wy  * Dxyz) +
                          (wx  * wDy * xDyz) +
                          (wx  * wy  * xyDz));
@@ -622,7 +643,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
           }
         }
       }
-      @barrier("s_z_s_Dz_s_xyDz_sync_1");
+      @barrier();
     }
   }
 }
@@ -635,7 +656,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
                              @restrict DLocal2D_t Y) {
   for (int e = 0; e < NE; ++e; @outer) {
     for (int dummy = 0; dummy < 1; ++dummy; @inner) {
-      double sol_xy[Q1D][Q1D];
+      okl_real_t sol_xy[Q1D][Q1D];
 
       for (int qy = 0; qy < Q1D; ++qy) {
         for (int qx = 0; qx < Q1D; ++qx) {
@@ -644,20 +665,20 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       }
 
       for (int dy = 0; dy < D1D; ++dy) {
-        double sol_x[Q1D];
+        okl_real_t sol_x[Q1D];
         for (int qy = 0; qy < Q1D; ++qy) {
           sol_x[qy] = 0;
         }
 
         for (int dx = 0; dx < D1D; ++dx) {
-          const double s = X(dx, dy, e);
+          const okl_real_t s = X(dx, dy, e);
           for (int qx = 0; qx < Q1D; ++qx) {
             sol_x[qx] += B(qx, dx) * s;
           }
         }
 
         for (int qy = 0; qy < Q1D; ++qy) {
-          const double d2q = B(qy, dy);
+          const okl_real_t d2q = B(qy, dy);
           for (int qx = 0; qx < Q1D; ++qx) {
             sol_xy[qy][qx] += d2q * sol_x[qx];
           }
@@ -671,20 +692,20 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       }
 
       for (int qy = 0; qy < Q1D; ++qy) {
-        double sol_x[D1D];
+        okl_real_t sol_x[D1D];
         for (int dx = 0; dx < D1D; ++dx) {
           sol_x[dx] = 0;
         }
 
         for (int qx = 0; qx < Q1D; ++qx) {
-          const double s = sol_xy[qy][qx];
+          const okl_real_t s = sol_xy[qy][qx];
           for (int dx = 0; dx < D1D; ++dx) {
             sol_x[dx] += Bt(dx, qx) * s;
           }
         }
 
         for (int dy = 0; dy < D1D; ++dy) {
-          const double q2d = Bt(dy, qy);
+          const okl_real_t q2d = Bt(dy, qy);
           for (int dx = 0; dx < D1D; ++dx) {
             Y(dx, dy, e) += q2d * sol_x[dx];
           }
@@ -703,7 +724,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
   // Iterate over elements
   for (int e = 0; e < NE; ++e; @outer) {
     for (int dummy = 0; dummy < 1; ++dummy; @inner) {
-      double sol_xyz[Q1D][Q1D][Q1D];
+      okl_real_t sol_xyz[Q1D][Q1D][Q1D];
       for (int qz = 0; qz < Q1D; ++qz) {
         for (int qy = 0; qy < Q1D; ++qy) {
           for (int qx = 0; qx < Q1D; ++qx) {
@@ -713,7 +734,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       }
 
       for (int dz = 0; dz < D1D; ++dz) {
-        double sol_xy[Q1D][Q1D];
+        okl_real_t sol_xy[Q1D][Q1D];
         for (int qy = 0; qy < Q1D; ++qy) {
           for (int qx = 0; qx < Q1D; ++qx) {
             sol_xy[qy][qx] = 0;
@@ -721,20 +742,20 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int dy = 0; dy < D1D; ++dy) {
-          double sol_x[Q1D];
+          okl_real_t sol_x[Q1D];
           for (int qx = 0; qx < Q1D; ++qx) {
             sol_x[qx] = 0;
           }
 
           for (int dx = 0; dx < D1D; ++dx) {
-            const double s = X(dx, dy, dz, e);
+            const okl_real_t s = X(dx, dy, dz, e);
             for (int qx = 0; qx < Q1D; ++qx) {
               sol_x[qx] += B(qx, dx) * s;
             }
           }
 
           for (int qy = 0; qy < Q1D; ++qy) {
-            const double wy = B(qy, dy);
+            const okl_real_t wy = B(qy, dy);
             for (int qx = 0; qx < Q1D; ++qx) {
               sol_xy[qy][qx] += wy * sol_x[qx];
             }
@@ -742,7 +763,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int qz = 0; qz < Q1D; ++qz) {
-          const double wz = B(qz, dz);
+          const okl_real_t wz = B(qz, dz);
           for (int qy = 0; qy < Q1D; ++qy) {
             for (int qx = 0; qx < Q1D; ++qx) {
               sol_xyz[qz][qy][qx] += wz * sol_xy[qy][qx];
@@ -760,7 +781,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       }
 
       for (int qz = 0; qz < Q1D; ++qz) {
-        double sol_xy[D1D][D1D];
+        okl_real_t sol_xy[D1D][D1D];
         for (int dy = 0; dy < D1D; ++dy) {
           for (int dx = 0; dx < D1D; ++dx) {
             sol_xy[dy][dx] = 0;
@@ -768,20 +789,20 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int qy = 0; qy < Q1D; ++qy) {
-          double sol_x[D1D];
+          okl_real_t sol_x[D1D];
           for (int dx = 0; dx < D1D; ++dx) {
             sol_x[dx] = 0;
           }
 
           for (int qx = 0; qx < Q1D; ++qx) {
-            const double s = sol_xyz[qz][qy][qx];
+            const okl_real_t s = sol_xyz[qz][qy][qx];
             for (int dx = 0; dx < D1D; ++dx) {
               sol_x[dx] += Bt(dx, qx) * s;
             }
           }
 
           for (int dy = 0; dy < D1D; ++dy) {
-            const double wy = Bt(dy, qy);
+            const okl_real_t wy = Bt(dy, qy);
             for (int dx = 0; dx < D1D; ++dx) {
               sol_xy[dy][dx] += wy * sol_x[dx];
             }
@@ -789,7 +810,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         }
 
         for (int dz = 0; dz < D1D; ++dz) {
-          const double wz = Bt(dz, qz);
+          const okl_real_t wz = Bt(dz, qz);
           for (int dy = 0; dy < D1D; ++dy) {
             for (int dx = 0; dx < D1D; ++dx) {
               Y(dx, dy, dz, e) += wz * sol_xy[dy][dx];
@@ -810,14 +831,14 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
   // Iterate over elements
   for (int eOff = 0; eOff < NE; eOff += M2_ELEMENT_BATCH; @outer) {
     // Store dof <--> quad mappings
-    @shared double s_B[DQ1D] @dim(Q1D, D1D);
-    @shared double s_Bt[DQ1D] @dim(D1D, Q1D);
+    @shared okl_real_t s_B[DQ1D] @dim(Q1D, D1D);
+    @shared okl_real_t s_Bt[DQ1D] @dim(D1D, Q1D);
 
     // Store xy planes in @shared memory
-    @shared double s_xy[DQ1D] @dim(D1D, Q1D);
-    @shared double s_xy2[Q2D] @dim(Q1D, Q1D);
+    @shared okl_real_t s_xy[DQ1D] @dim(D1D, Q1D);
+    @shared okl_real_t s_xy2[Q2D] @dim(Q1D, Q1D);
 
-    @exclusive double r_x[M1D];
+    @exclusive okl_real_t r_x[M1D];
 
     for (int x = 0; x < M1D; ++x; @inner) {
       for (int id = x; id < DQ1D; id += M1D) {
@@ -837,7 +858,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
               r_x[dy] = X(dx, dy, e);
             }
             for (int qy = 0; qy < Q1D; ++qy) {
-              double xy = 0;
+              okl_real_t xy = 0;
               for (int dy = 0; dy < D1D; ++dy) {
                 xy += r_x[dy] * s_B(qy, dy);
               }
@@ -848,7 +869,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         for (int qy = 0; qy < M1D; ++qy; @inner) {
           if (qy < Q1D) {
             for (int qx = 0; qx < Q1D; ++qx) {
-              double s = 0;
+              okl_real_t s = 0;
               for (int dx = 0; dx < D1D; ++dx) {
                 s += s_xy(dx, qy) * s_B(qx, dx);
               }
@@ -866,7 +887,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
               r_x[qy] = s_xy2(qx, qy);
             }
             for (int dy = 0; dy < D1D; ++dy) {
-              double s = 0;
+              okl_real_t s = 0;
               for (int qy = 0; qy < Q1D; ++qy) {
                 s += r_x[qy] * s_Bt(dy, qy);
               }
@@ -877,7 +898,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
         for (int dx = 0; dx < M1D; ++dx; @inner) {
           if (dx < D1D) {
             for (int dy = 0; dy < D1D; ++dy) {
-              double s = 0;
+              okl_real_t s = 0;
               for (int qx = 0; qx < Q1D; ++qx) {
                 s += (s_xy(dy, qx) * s_Bt(dx, qx));
               }
@@ -899,15 +920,15 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
   // Iterate over elements
   for (int e = 0; e < NE; ++e; @outer) {
     // Store dof <--> quad mappings
-    @shared double s_B[DQ1D] @dim(Q1D, D1D);
-    @shared double s_Bt[DQ1D] @dim(D1D, Q1D);
+    @shared okl_real_t s_B[DQ1D] @dim(Q1D, D1D);
+    @shared okl_real_t s_Bt[DQ1D] @dim(D1D, Q1D);
 
     // Store xy planes in @shared memory
-    @shared double s_xy[M2D] @dim(M1D, M1D);
+    @shared okl_real_t s_xy[M2D] @dim(M1D, M1D);
 
     // Store z axis as registers
-    @exclusive double r_z[Q1D];
-    @exclusive double r_z2[D1D];
+    @exclusive okl_real_t r_z[Q1D];
+    @exclusive okl_real_t r_z2[D1D];
 
     for (int y = 0; y < M1D; ++y; @inner) {
       for (int x = 0; x < M1D; ++x; @inner) {
@@ -931,7 +952,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       for (int dx = 0; dx < M1D; ++dx; @inner) {
         if ((dx < D1D) && (dy < D1D)) {
           for (int dz = 0; dz < D1D; ++dz) {
-            const double s = X(dx, dy, dz, e);
+            const okl_real_t s = X(dx, dy, dz, e);
             // Calculate D -> Q in the Z axis
             for (int qz = 0; qz < Q1D; ++qz) {
               r_z[qz] += s * s_B(qz, dz);
@@ -954,11 +975,11 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       for (int qy = 0; qy < M1D; ++qy; @inner) {
         for (int qx = 0; qx < M1D; ++qx; @inner) {
           if ((qx < Q1D) && (qy < Q1D)) {
-            double s = 0;
+            okl_real_t s = 0;
             for (int dy = 0; dy < D1D; ++dy) {
-              const double wy = s_B(qy, dy);
+              const okl_real_t wy = s_B(qy, dy);
               for (int dx = 0; dx < D1D; ++dx) {
-                const double wx = s_B(qx, dx);
+                const okl_real_t wx = s_B(qx, dx);
                 s += wx * wy * s_xy(dx, dy);
               }
             }
@@ -966,13 +987,13 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
             s *= op(qx, qy, qz, e);
 
             for (int dz = 0; dz < D1D; ++dz) {
-              const double wz  = s_Bt(dz, qz);
+              const okl_real_t wz  = s_Bt(dz, qz);
               r_z2[dz] += wz * s;
             }
           }
         }
       }
-      @barrier("s_xy_sync_1");
+      @barrier();
     }
     // Iterate over xy planes to compute solution
     for (int dz = 0; dz < D1D; ++dz) {
@@ -988,11 +1009,11 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
       for (int dy = 0; dy < M1D; ++dy; @inner) {
         for (int dx = 0; dx < M1D; ++dx; @inner) {
           if ((dx < D1D) && (dy < D1D)) {
-            double solZ = 0;
+            okl_real_t solZ = 0;
             for (int qy = 0; qy < Q1D; ++qy) {
-              const double wy = s_Bt(dy, qy);
+              const okl_real_t wy = s_Bt(dy, qy);
               for (int qx = 0; qx < Q1D; ++qx) {
-                const double wx = s_Bt(dx, qx);
+                const okl_real_t wx = s_Bt(dx, qx);
                 solZ += wx * wy * s_xy(qx, qy);
               }
             }
@@ -1000,7 +1021,7 @@ typedef double* SymmOperator3D_t @dim(Q3D, 6, NE);
           }
         }
       }
-      @barrier("s_xy_sync_2");
+      @barrier();
     }
   }
 }
