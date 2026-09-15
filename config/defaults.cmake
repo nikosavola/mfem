@@ -57,6 +57,9 @@ option(MFEM_USE_HIOP "Enable HiOp" OFF)
 option(MFEM_USE_CUDA "Enable CUDA" OFF)
 option(MFEM_USE_HIP "Enable HIP" OFF)
 option(MFEM_USE_OCCA "Enable OCCA" OFF)
+option(MFEM_USE_OCCA_METAL
+   "Enable experimental OCCA Metal (Apple GPU) support; requires \
+MFEM_USE_OCCA=YES and an Apple (macOS) host" OFF)
 option(MFEM_USE_RAJA "Enable RAJA" OFF)
 option(MFEM_USE_CEED "Enable CEED" OFF)
 option(MFEM_USE_UMPIRE "Enable Umpire" OFF)

@@ -303,6 +303,24 @@ ifeq ($(MFEM_USE_LEGACY_OPENMP),YES)
    # MFEM_USE_OPENMP, MFEM_USE_CUDA, MFEM_USE_RAJA, MFEM_USE_OCCA
 endif
 
+# Check experimental OCCA Metal (Apple GPU) configuration. This option does
+# not select any additional dependency or source files by itself -- see the
+# matching comment in CMakeLists.txt -- it only fails the build early and
+# explicitly on a platform/dependency combination that clearly cannot work,
+# and advertises the experimental capability via MFEM_DEFINES above (see
+# general/version.cpp, GetConfigStr()). See
+# doc/apple-metal-mlx-support-progress.md.
+ifeq ($(MFEM_USE_OCCA_METAL),YES)
+   ifneq ($(MFEM_USE_OCCA),YES)
+      $(error Incompatible config: MFEM_USE_OCCA_METAL requires MFEM_USE_OCCA=YES)
+   endif
+   ifneq ($(shell uname -s),Darwin)
+      $(error MFEM_USE_OCCA_METAL is experimental and Apple-GPU-only (it uses\
+ OCCA Metal mode, which requires macOS and Xcode); it cannot be enabled on\
+ this platform)
+   endif
+endif
+
 # List of MFEM dependencies, that require the *_LIB variable to be non-empty
 MFEM_REQ_LIB_DEPS = SUPERLU MUMPS METIS FMS CONDUIT SIDRE LAPACK SUNDIALS\
  SUITESPARSE STRUMPACK GINKGO GNUTLS HDF5 NETCDF SLEPC PETSC MPFR PUMI HIOP\
@@ -372,7 +390,7 @@ MFEM_DEFINES = MFEM_VERSION MFEM_VERSION_STRING MFEM_GIT_STRING MFEM_USE_MPI\
  MFEM_USE_STRUMPACK MFEM_USE_GNUTLS MFEM_USE_HDF5 MFEM_USE_NETCDF MFEM_USE_PETSC\
  MFEM_USE_SLEPC MFEM_USE_MPFR MFEM_USE_SIDRE MFEM_USE_FMS MFEM_USE_CONDUIT\
  MFEM_USE_PUMI MFEM_USE_HIOP MFEM_USE_GSLIB MFEM_USE_CUDA MFEM_USE_HIP\
- MFEM_USE_OCCA MFEM_USE_MOONOLITH MFEM_USE_CEED MFEM_USE_RAJA MFEM_USE_UMPIRE\
+ MFEM_USE_OCCA MFEM_USE_OCCA_METAL MFEM_USE_MOONOLITH MFEM_USE_CEED MFEM_USE_RAJA MFEM_USE_UMPIRE\
  MFEM_USE_SIMD MFEM_USE_ADIOS2 MFEM_USE_MKL_CPARDISO MFEM_USE_MKL_PARDISO MFEM_USE_AMGX\
  MFEM_USE_MAGMA MFEM_USE_MUMPS MFEM_USE_ADFORWARD MFEM_USE_CODIPACK MFEM_USE_CALIPER\
  MFEM_USE_BENCHMARK MFEM_USE_PARELAG MFEM_USE_TRIBOL MFEM_USE_ALGOIM MFEM_USE_ENZYME\
@@ -763,6 +781,7 @@ status info:
 	$(info MFEM_USE_HIP           = $(MFEM_USE_HIP))
 	$(info MFEM_USE_RAJA          = $(MFEM_USE_RAJA))
 	$(info MFEM_USE_OCCA          = $(MFEM_USE_OCCA))
+	$(info MFEM_USE_OCCA_METAL    = $(MFEM_USE_OCCA_METAL))
 	$(info MFEM_USE_CALIPER       = $(MFEM_USE_CALIPER))
 	$(info MFEM_USE_ALGOIM        = $(MFEM_USE_ALGOIM))
 	$(info MFEM_USE_CEED          = $(MFEM_USE_CEED))

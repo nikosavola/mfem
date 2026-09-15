@@ -538,6 +538,29 @@ if (MFEM_USE_OCCA)
    find_package(OCCA REQUIRED)
 endif()
 
+# OCCA Metal (experimental, Apple-GPU-only). This option does not select any
+# additional dependency or source files by itself -- OCCA is still the only
+# external dependency (find_package(OCCA) above), and the occa-metal runtime
+# backend (general/device.hpp Backend::OCCA_METAL) is always compiled in,
+# gated at Device::Setup() time on the host platform and on whether the
+# OCCA used was itself built with Metal support. MFEM_USE_OCCA_METAL exists
+# to (a) fail the configure step early and explicitly when the platform or
+# dependency chain clearly cannot support it, rather than only at runtime,
+# and (b) advertise the experimental capability in MFEM's own config report
+# (see general/version.cpp, GetConfigStr()). See
+# doc/apple-metal-mlx-support-progress.md for what this does and does not
+# enable today.
+if (MFEM_USE_OCCA_METAL)
+   if (NOT MFEM_USE_OCCA)
+      message(FATAL_ERROR "MFEM_USE_OCCA_METAL requires MFEM_USE_OCCA=YES")
+   endif()
+   if (NOT APPLE)
+      message(FATAL_ERROR "MFEM_USE_OCCA_METAL is experimental and "
+         "Apple-GPU-only (it uses OCCA's Metal mode, which requires macOS "
+         "and Xcode); it cannot be enabled on this platform")
+   endif()
+endif()
+
 # RAJA
 if (MFEM_USE_RAJA)
    # RAJA uses FindCUDA, which needs CMP0146=OLD in CMake >= 3.27

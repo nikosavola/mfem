@@ -182,6 +182,10 @@
 // Enable functionality based on the OCCA library.
 // #define MFEM_USE_OCCA
 
+// Enable the experimental OCCA Metal (Apple GPU) backend. Apple-only;
+// requires MFEM_USE_OCCA. See doc/apple-metal-mlx-support-progress.md.
+// #define MFEM_USE_OCCA_METAL
+
 // Enable functionality based on the libCEED library.
 // #define MFEM_USE_CEED
 
