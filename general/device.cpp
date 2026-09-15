@@ -498,14 +498,18 @@ static void OccaDeviceSetup(const int dev)
    else if (omp)
    {
 #if OCCA_OPENMP_ENABLED
-      internal::occaDevice.setup("mode: 'OpenMP'");
+      // OCCA 2.x has both device::setup(const std::string&) and
+      // device::setup(const occa::json&) overloads; a bare string literal is
+      // ambiguous between them (json has an implicit const char* ctor too),
+      // so the argument must be an explicit std::string.
+      internal::occaDevice.setup(std::string("mode: 'OpenMP'"));
 #else
       MFEM_ABORT("the OCCA OpenMP backend requires OCCA built with OpenMP!");
 #endif
    }
    else
    {
-      internal::occaDevice.setup("mode: 'Serial'");
+      internal::occaDevice.setup(std::string("mode: 'Serial'"));
    }
 
    std::string mfemDir;
@@ -522,8 +526,13 @@ static void OccaDeviceSetup(const int dev)
       MFEM_ABORT("Cannot find OCCA kernels in MFEM_INSTALL_DIR or MFEM_SOURCE_DIR");
    }
 
+   // OCCA 2.x removed occa::loadKernels(): there is no bulk-preload API
+   // anymore. addLibraryPath() below is still what makes the
+   // "occa://mfem/..." paths used by mfem::OccaDev().buildKernel() (see
+   // e.g. fem/integ/bilininteg_diffusion_kernels.cpp) resolve; individual
+   // kernels are now compiled lazily, on first buildKernel() call, instead
+   // of eagerly here.
    occa::io::addLibraryPath("mfem", mfemDir);
-   occa::loadKernels("mfem");
 #else
    MFEM_CONTRACT_VAR(dev);
    MFEM_ABORT("the OCCA backends require MFEM built with MFEM_USE_OCCA=YES");

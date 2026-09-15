@@ -1085,14 +1085,14 @@ real_t Vector::operator*(const Vector &v) const
    const bool use_dev = UseDevice() || v.UseDevice();
    const auto m_data = Read(use_dev), v_data = v.Read(use_dev);
 
-   // If OCCA is enabled, it handles all selected backends
-#ifdef MFEM_USE_OCCA
-   if (use_dev && DeviceCanUseOcca())
-   {
-      return occa::linalg::dot<real_t, real_t, real_t>(
-                OccaMemoryRead(data, size), OccaMemoryRead(v.data, size));
-   }
-#endif
+   // NOTE: OCCA 1.x's occa::linalg reduction module (dot/min/max) used here
+   // no longer exists in OCCA 2.x's public API -- it was removed upstream,
+   // not renamed. There is nothing to bind to, so this now falls through to
+   // the generic compute_dot() below, which already produces identical
+   // results for every backend OCCA could have selected here (Device::Allows
+   // (Backend::DEVICE_MASK) still routes CUDA-backed occa-cuda through the
+   // native device reduce path; OCCA_CPU/OCCA_OMP are host-class backends and
+   // already fell through to compute_dot() for every other host backend).
 
    const auto compute_dot = [&]()
    {
@@ -1158,12 +1158,8 @@ real_t Vector::Min() const
    const auto use_dev = UseDevice();
    const auto m_data = Read(use_dev);
 
-#ifdef MFEM_USE_OCCA
-   if (use_dev && DeviceCanUseOcca())
-   {
-      return occa::linalg::min<real_t,real_t>(OccaMemoryRead(data, size));
-   }
-#endif
+   // See the NOTE in operator*() above: occa::linalg::min no longer exists
+   // in OCCA 2.x, so this falls through to the generic compute_min() below.
 
    const auto compute_min = [&]()
    {
@@ -1204,12 +1200,8 @@ real_t Vector::Max() const
    const auto use_dev = UseDevice();
    const auto m_data = Read(use_dev);
 
-#ifdef MFEM_USE_OCCA
-   if (use_dev && DeviceCanUseOcca())
-   {
-      return occa::linalg::max<real_t, real_t>(OccaMemoryRead(data, size));
-   }
-#endif
+   // See the NOTE in operator*() above: occa::linalg::max no longer exists
+   // in OCCA 2.x, so this falls through to the generic compute_max() below.
 
    const auto compute_max = [&]()
    {

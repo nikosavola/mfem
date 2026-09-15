@@ -14,10 +14,6 @@
 #ifdef MFEM_USE_OCCA
 #include "device.hpp"
 
-#if defined(MFEM_USE_CUDA) && OCCA_CUDA_ENABLED
-#include <occa/modes/cuda/utils.hpp>
-#endif
-
 namespace mfem
 {
 
@@ -28,15 +24,17 @@ occa::device &OccaDev() { return internal::occaDevice; }
 
 occa::memory OccaMemoryWrap(void *ptr, std::size_t bytes)
 {
-#if defined(MFEM_USE_CUDA) && OCCA_CUDA_ENABLED
-   // If OCCA_CUDA is allowed, it will be used since it has the highest priority
-   if (Device::Allows(Backend::OCCA_CUDA))
-   {
-      return occa::cuda::wrapMemory(internal::occaDevice, ptr, bytes);
-   }
-#endif // MFEM_USE_CUDA && OCCA_CUDA_ENABLED
-   // otherwise, fallback to occa::cpu address space
-   return occa::cpu::wrapMemory(internal::occaDevice, ptr, bytes);
+   // OCCA 2.x no longer exposes the per-mode free functions this used to
+   // call (occa::cpu::wrapMemory, occa::cuda::wrapMemory) as public API --
+   // only occa::device::wrapMemory() member, which internally dispatches to
+   // whatever mode the device was setup() with (Serial, OpenMP, CUDA,
+   // Metal, ...). A single generic call replaces the old per-mode
+   // branching and, as a side effect, is also what an occa-metal device
+   // would use here without needing OCCA-Metal-specific headers -- OCCA
+   // 2.0.0 does not ship a public occa/modes/metal/*.hpp analogous to the
+   // (also no-longer-public) occa/modes/cuda/utils.hpp the old code
+   // included.
+   return internal::occaDevice.wrapMemory(ptr, bytes);
 }
 
 } // namespace mfem
