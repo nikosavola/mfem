@@ -47,17 +47,23 @@ TEST_CASE("Reduce Sum", "[Reduction],[GPU]")
 TEST_CASE("Reduce Array Sum", "[Reduction],[GPU]")
 {
    constexpr int num_sums = 4;
+   // Large enough to take the parallel host path when OpenMP is enabled.
+   constexpr int size = 100000;
    using sums_type = DeviceFixedArray<int, num_sums>;
 
    Array<sums_type> workspace;
    Array<int> scalar_workspace;
-   Array<int> x(1000), y(1000);
+   Array<int> x(size), y(size);
    x.HostWrite();
    y.HostWrite();
-   for (int i = 0; i < x.Size(); ++i)
+   int sum_x = 0, sum_y = 0, sum_xy = 0;
+   for (int i = 0; i < size; ++i)
    {
-      x[i] = i;
-      y[i] = 2 * i + 1;
+      x[i] = i % 17;
+      y[i] = i % 13;
+      sum_x += x[i];
+      sum_y += y[i];
+      sum_xy += x[i] * y[i];
    }
 
    for (int use_dev = 0; use_dev < 2; ++use_dev)
@@ -66,7 +72,7 @@ TEST_CASE("Reduce Array Sum", "[Reduction],[GPU]")
       auto yp = y.Read(use_dev);
       sums_type sums{};
       mfem::reduce(
-         x.Size(), sums,
+         size, sums,
          [=] MFEM_HOST_DEVICE(int i, sums_type &r)
       {
          r[0] += xp[i];
@@ -76,24 +82,26 @@ TEST_CASE("Reduce Array Sum", "[Reduction],[GPU]")
       },
       ArraySumReducer<int, num_sums> {}, use_dev, workspace);
 
-      // the fused sums must match the same sums computed one at a time
-      int sum_x = 0, sum_y = 0, sum_xy = 0, count = 0;
-      mfem::reduce(x.Size(), sum_x,
+      // the fused sums must match the reference and the one-at-a-time sums
+      int sep_x = 0, sep_y = 0, sep_xy = 0;
+      mfem::reduce(size, sep_x,
       [=] MFEM_HOST_DEVICE(int i, int &r) { r += xp[i]; },
       SumReducer<int> {}, use_dev, scalar_workspace);
-      mfem::reduce(x.Size(), sum_y,
+      mfem::reduce(size, sep_y,
       [=] MFEM_HOST_DEVICE(int i, int &r) { r += yp[i]; },
       SumReducer<int> {}, use_dev, scalar_workspace);
-      mfem::reduce(x.Size(), sum_xy,
+      mfem::reduce(size, sep_xy,
       [=] MFEM_HOST_DEVICE(int i, int &r) { r += xp[i] * yp[i]; },
       SumReducer<int> {}, use_dev, scalar_workspace);
-      count = x.Size();
 
       CAPTURE(use_dev);
       REQUIRE(sums[0] == sum_x);
       REQUIRE(sums[1] == sum_y);
       REQUIRE(sums[2] == sum_xy);
-      REQUIRE(sums[3] == count);
+      REQUIRE(sums[3] == size);
+      REQUIRE(sep_x == sum_x);
+      REQUIRE(sep_y == sum_y);
+      REQUIRE(sep_xy == sum_xy);
    }
 }
 
