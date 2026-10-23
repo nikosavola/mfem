@@ -44,6 +44,59 @@ TEST_CASE("Reduce Sum", "[Reduction],[GPU]")
    }
 }
 
+TEST_CASE("Reduce Array Sum", "[Reduction],[GPU]")
+{
+   constexpr int num_sums = 4;
+   using sums_type = DeviceFixedArray<int, num_sums>;
+
+   Array<sums_type> workspace;
+   Array<int> scalar_workspace;
+   Array<int> x(1000), y(1000);
+   x.HostWrite();
+   y.HostWrite();
+   for (int i = 0; i < x.Size(); ++i)
+   {
+      x[i] = i;
+      y[i] = 2 * i + 1;
+   }
+
+   for (int use_dev = 0; use_dev < 2; ++use_dev)
+   {
+      auto xp = x.Read(use_dev);
+      auto yp = y.Read(use_dev);
+      sums_type sums{};
+      mfem::reduce(
+         x.Size(), sums,
+         [=] MFEM_HOST_DEVICE(int i, sums_type &r)
+      {
+         r[0] += xp[i];
+         r[1] += yp[i];
+         r[2] += xp[i] * yp[i];
+         r[3] += 1;
+      },
+      ArraySumReducer<int, num_sums> {}, use_dev, workspace);
+
+      // the fused sums must match the same sums computed one at a time
+      int sum_x = 0, sum_y = 0, sum_xy = 0, count = 0;
+      mfem::reduce(x.Size(), sum_x,
+      [=] MFEM_HOST_DEVICE(int i, int &r) { r += xp[i]; },
+      SumReducer<int> {}, use_dev, scalar_workspace);
+      mfem::reduce(x.Size(), sum_y,
+      [=] MFEM_HOST_DEVICE(int i, int &r) { r += yp[i]; },
+      SumReducer<int> {}, use_dev, scalar_workspace);
+      mfem::reduce(x.Size(), sum_xy,
+      [=] MFEM_HOST_DEVICE(int i, int &r) { r += xp[i] * yp[i]; },
+      SumReducer<int> {}, use_dev, scalar_workspace);
+      count = x.Size();
+
+      CAPTURE(use_dev);
+      REQUIRE(sums[0] == sum_x);
+      REQUIRE(sums[1] == sum_y);
+      REQUIRE(sums[2] == sum_xy);
+      REQUIRE(sums[3] == count);
+   }
+}
+
 TEST_CASE("Reduce Mult", "[Reduction],[GPU]")
 {
    Array<long long> workspace;

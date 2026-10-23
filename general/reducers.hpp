@@ -38,6 +38,19 @@ template <class A, class B> struct MinMaxLocScalar
    B max_loc;
 };
 
+/// @brief Fixed-size array of values which can be used in device code
+template <class T, int N> struct DeviceFixedArray
+{
+   T data[N];
+   MFEM_HOST_DEVICE T &operator[](int i) { return data[i]; }
+   MFEM_HOST_DEVICE const T &operator[](int i) const { return data[i]; }
+   MFEM_HOST_DEVICE T *begin() { return data; }
+   MFEM_HOST_DEVICE const T *begin() const { return data; }
+   MFEM_HOST_DEVICE T *end() { return data + N; }
+   MFEM_HOST_DEVICE const T *end() const { return data + N; }
+   static constexpr int size() { return N; }
+};
+
 /// @brief a += b
 template <class T> struct SumReducer
 {
@@ -48,6 +61,37 @@ template <class T> struct SumReducer
    }
 
    static MFEM_HOST_DEVICE void SetInitialValue(value_type &a) { a = T(0); }
+};
+
+/// @brief a[i] += b[i], for i in [0,N)
+///
+/// Sums N independent quantities in a single reduction pass. The body accumulates
+/// into the individual entries of the value, so a caller that needs several sums
+/// over the same data pays for one pass and one reduction instead of N.
+/// @code
+/// DeviceFixedArray<real_t, 2> sums{};
+/// reduce(N, sums, [=] MFEM_HOST_DEVICE(int i, DeviceFixedArray<real_t, 2> &r)
+///        { r[0] += x[i]; r[1] += y[i]; },
+///        ArraySumReducer<real_t, 2>{}, use_dev, workspace);
+/// @endcode
+template <class T, int N> struct ArraySumReducer
+{
+   using value_type = DeviceFixedArray<T, N>;
+   static MFEM_HOST_DEVICE void Join(value_type &a, const value_type &b)
+   {
+      for (int i = 0; i < N; i++)
+      {
+         a[i] += b[i];
+      }
+   }
+
+   static MFEM_HOST_DEVICE void SetInitialValue(value_type &a)
+   {
+      for (int i = 0; i < N; i++)
+      {
+         a[i] = T(0);
+      }
+   }
 };
 
 /// @brief a *= b
